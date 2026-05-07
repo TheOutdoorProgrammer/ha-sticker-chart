@@ -163,8 +163,9 @@ def _register_services(hass: HomeAssistant, store: StickerChartStore) -> None:
         cost = call.data[ATTR_REWARD_COST]
         icon = call.data.get(ATTR_REWARD_ICON, "mdi:star")
         automation_id = call.data.get(ATTR_AUTOMATION_ID)
+        description = call.data.get("description", "")
         try:
-            await s.async_add_reward(name, cost, icon, automation_id)
+            await s.async_add_reward(name, cost, icon, automation_id, description)
         except ValueError as err:
             raise ServiceValidationError(str(err)) from err
         # Reload to create new button entities
@@ -193,6 +194,8 @@ def _register_services(hass: HomeAssistant, store: StickerChartStore) -> None:
             updates["cost"] = call.data[ATTR_REWARD_COST]
         if ATTR_REWARD_ICON in call.data:
             updates["icon"] = call.data[ATTR_REWARD_ICON]
+        if "description" in call.data:
+            updates["description"] = call.data["description"]
         if ATTR_AUTOMATION_ID in call.data:
             updates["automation_id"] = call.data[ATTR_AUTOMATION_ID]
         if not updates:
@@ -297,6 +300,7 @@ def _register_services(hass: HomeAssistant, store: StickerChartStore) -> None:
                 vol.Required(ATTR_REWARD_COST): cv.positive_int,
                 vol.Optional(ATTR_REWARD_ICON, default="mdi:star"): cv.string,
                 vol.Optional(ATTR_AUTOMATION_ID): cv.string,
+                vol.Optional("description", default=""): cv.string,
             }
         ),
     )
@@ -317,6 +321,7 @@ def _register_services(hass: HomeAssistant, store: StickerChartStore) -> None:
                 vol.Optional(ATTR_REWARD_COST): cv.positive_int,
                 vol.Optional(ATTR_REWARD_ICON): cv.string,
                 vol.Optional(ATTR_AUTOMATION_ID): cv.string,
+                vol.Optional("description"): cv.string,
             }
         ),
     )

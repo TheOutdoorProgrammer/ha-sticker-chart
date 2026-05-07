@@ -105,6 +105,7 @@ class RewardRedemptionButton(ButtonEntity):
             "can_afford": can_afford,
             "has_pending": has_pending,
             "status": status,
+            "description": reward.get("description", ""),
             "automation_id": reward.get("automation_id"),
         }
 

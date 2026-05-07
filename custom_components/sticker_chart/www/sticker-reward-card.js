@@ -20,7 +20,7 @@ class StickerRewardCard extends HTMLElement {
     }
 
     // Dirty check — only re-render when data actually changes
-    const key = `${state.state}|${state.attributes.current_balance}|${state.attributes.can_afford}|${state.attributes.has_pending}|${this._optimisticPending}`;
+    const key = `${state.state}|${state.attributes.current_balance}|${state.attributes.can_afford}|${state.attributes.has_pending}|${state.attributes.description || ""}|${this._optimisticPending}`;
     if (key === this._lastState) return;
     this._lastState = key;
 
@@ -68,6 +68,7 @@ class StickerRewardCard extends HTMLElement {
     const serverPending = attrs.has_pending || false;
     const hasPending = serverPending || this._optimisticPending;
     const status = attrs.status || "";
+    const description = attrs.description || "";
     const icon = attrs.icon || this._config.icon || "mdi:star";
     const progressPct = cost > 0 ? Math.round(Math.min(balance / cost, 1) * 100) : 0;
     const isRedeemable = canAfford && !hasPending;
@@ -109,6 +110,7 @@ class StickerRewardCard extends HTMLElement {
               <div style="font-size:13px;color:rgba(255,255,255,0.7);margin-top:2px;">
                 ${cost} ⭐ needed
               </div>
+              ${description ? `<div style="font-size:12px;color:rgba(255,255,255,0.5);margin-top:4px;font-style:italic;">${description}</div>` : ""}
             </div>
           </div>
 

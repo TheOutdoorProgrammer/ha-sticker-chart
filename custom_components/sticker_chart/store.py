@@ -158,6 +158,7 @@ class StickerChartStore:
         cost: int,
         icon: str = "mdi:star",
         automation_id: str | None = None,
+        description: str = "",
     ) -> str:
         """Add a reward and return its ID."""
         if cost <= 0:
@@ -168,6 +169,7 @@ class StickerChartStore:
             "cost": cost,
             "icon": icon,
             "automation_id": automation_id,
+            "description": description,
         }
         await self._async_save()
         _LOGGER.info("Added reward %s (%s) costing %d stickers", name, reward_id, cost)
@@ -196,7 +198,7 @@ class StickerChartStore:
         """Update reward fields (name, cost, icon, automation_id)."""
         if reward_id not in self._data["rewards"]:
             raise ValueError(f"Reward {reward_id} not found")
-        valid_keys = {"name", "cost", "icon", "automation_id"}
+        valid_keys = {"name", "cost", "icon", "automation_id", "description"}
         for key, value in kwargs.items():
             if key not in valid_keys:
                 raise ValueError(f"Invalid reward field: {key}")
