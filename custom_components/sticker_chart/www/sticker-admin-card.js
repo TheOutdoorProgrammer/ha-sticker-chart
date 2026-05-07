@@ -6,18 +6,18 @@ class StickerAdminRewardsCard extends HTMLElement {
     this._lastKey = null;
     this._editingId = null;
     this._showAddForm = false;
+    this._built = false;
   }
 
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
-    // Never re-render while a form is open — it would destroy user input
     if (this._editingId || this._showAddForm) return;
     const rewards = this._getRewards();
     const key = JSON.stringify(rewards);
     if (key === this._lastKey) return;
     this._lastKey = key;
-    this._render(rewards);
+    this._fullRender(rewards);
   }
 
   setConfig(config) { this._config = config; }
@@ -45,29 +45,40 @@ class StickerAdminRewardsCard extends HTMLElement {
     return rewards;
   }
 
-  _render(rewards) {
+  _resetFormState() {
+    this._editingId = null;
+    this._showAddForm = false;
+    this._lastKey = null;
+  }
+
+  // After a service call, wait then force refresh
+  _refreshAfterAction(delay = 800) {
+    this._resetFormState();
+    setTimeout(() => {
+      this._lastKey = null;
+      this._fullRender(this._getRewards());
+    }, delay);
+  }
+
+  _fullRender(rewards) {
     let rowsHtml = "";
     for (const r of rewards) {
-      if (this._editingId === r.reward_id) {
-        rowsHtml += this._editForm(r);
-      } else {
-        const autoHtml = r.automation_id
-          ? `<div class="sc-auto sc-auto-link" data-auto="${r.automation_id}">⚡ ${r.automation_id}</div>`
-          : `<div class="sc-auto-none">No automation</div>`;
-        rowsHtml += `
-          <div class="sc-row">
-            <div class="sc-icon-box"><ha-icon icon="${r.icon}" style="--mdc-icon-size:24px;"></ha-icon></div>
-            <div class="sc-info">
-              <div class="sc-name">${r.name}</div>
-              <div class="sc-meta">${r.cost} ⭐ &nbsp;${r.description ? `· <em>${r.description}</em>` : ""}</div>
-              ${autoHtml}
-            </div>
-            <div class="sc-actions">
-              <button class="sc-btn sc-btn-edit sc-edit-btn" data-id="${r.reward_id}">Edit</button>
-              <button class="sc-btn sc-btn-del sc-del-btn" data-id="${r.reward_id}" data-name="${r.name}">✕</button>
-            </div>
-          </div>`;
-      }
+      const autoHtml = r.automation_id
+        ? `<div class="sc-auto sc-auto-link" data-auto="${r.automation_id}">⚡ ${r.automation_id}</div>`
+        : `<div class="sc-auto-none">No automation</div>`;
+      rowsHtml += `
+        <div class="sc-row">
+          <div class="sc-icon-box"><ha-icon icon="${r.icon}" style="--mdc-icon-size:24px;"></ha-icon></div>
+          <div class="sc-info">
+            <div class="sc-name">${r.name}</div>
+            <div class="sc-meta">${r.cost} ⭐ ${r.description ? `· <em>${r.description}</em>` : ""}</div>
+            ${autoHtml}
+          </div>
+          <div class="sc-actions">
+            <button class="sc-btn sc-btn-edit sc-edit-btn" data-id="${r.reward_id}">Edit</button>
+            <button class="sc-btn sc-btn-del sc-del-btn" data-id="${r.reward_id}" data-name="${r.name}">✕</button>
+          </div>
+        </div>`;
     }
 
     this.innerHTML = `
@@ -78,19 +89,59 @@ class StickerAdminRewardsCard extends HTMLElement {
             <button class="sc-btn sc-btn-add sc-toggle-add">+ Add Reward</button>
           </div>
           <div class="sc-list">${rowsHtml}</div>
-          ${this._showAddForm ? this._addForm() : ""}
+          <div class="sc-form-container"></div>
         </div>
       </ha-card>
       <style>${this._styles()}</style>`;
 
-    this._bind(rewards);
+    this._bindListEvents(rewards);
   }
 
-  _editForm(r) {
+  _bindListEvents(rewards) {
+    this.querySelector(".sc-toggle-add")?.addEventListener("click", () => {
+      this._showAddForm = true;
+      this._editingId = null;
+      this._renderForm(this._addFormHtml());
+    });
+    this.querySelectorAll(".sc-edit-btn").forEach(b => b.addEventListener("click", () => {
+      const r = rewards.find(x => x.reward_id === b.dataset.id);
+      if (!r) return;
+      this._editingId = r.reward_id;
+      this._showAddForm = false;
+      this._renderForm(this._editFormHtml(r));
+    }));
+    this.querySelectorAll(".sc-del-btn").forEach(b => b.addEventListener("click", () => {
+      if (confirm(`Delete "${b.dataset.name}"?`)) {
+        this._hass.callService("sticker_chart", "remove_reward", { reward_id: b.dataset.id });
+        this._refreshAfterAction(2000);
+      }
+    }));
+    this.querySelectorAll(".sc-auto-link").forEach(l => l.addEventListener("click", () => {
+      window.location.href = `/config/automation/edit/${l.dataset.auto.replace("automation.", "")}`;
+    }));
+  }
+
+  _renderForm(html) {
+    const container = this.querySelector(".sc-form-container");
+    if (!container) return;
+    container.innerHTML = html;
+    this._bindFormEvents();
+  }
+
+  _bindFormEvents() {
+    this.querySelectorAll(".sc-cancel").forEach(b => b.addEventListener("click", () => {
+      this._resetFormState();
+      this.querySelector(".sc-form-container").innerHTML = "";
+    }));
+    this.querySelector(".sc-save-edit")?.addEventListener("click", () => this._doEdit());
+    this.querySelector(".sc-save-add")?.addEventListener("click", () => this._doAdd());
+  }
+
+  _editFormHtml(r) {
     return `
       <div class="sc-form" data-form="edit" data-id="${r.reward_id}">
         <div class="sc-form-title">Editing: ${r.name}</div>
-        ${this._fields(r)}
+        ${this._fieldsHtml(r)}
         <div class="sc-form-btns">
           <button class="sc-btn sc-btn-cancel sc-cancel">Cancel</button>
           <button class="sc-btn sc-btn-save sc-save-edit">Save</button>
@@ -98,11 +149,11 @@ class StickerAdminRewardsCard extends HTMLElement {
       </div>`;
   }
 
-  _addForm() {
+  _addFormHtml() {
     return `
       <div class="sc-form" data-form="add" style="border-color:#4caf50;">
         <div class="sc-form-title">New Reward</div>
-        ${this._fields({ name: "", cost: "", icon: "mdi:star", description: "", automation_id: "" })}
+        ${this._fieldsHtml({ name: "", cost: "", icon: "mdi:star", description: "", automation_id: "" })}
         <div class="sc-form-btns">
           <button class="sc-btn sc-btn-cancel sc-cancel">Cancel</button>
           <button class="sc-btn sc-btn-save sc-save-add" style="background:#4caf50;">Add</button>
@@ -110,37 +161,13 @@ class StickerAdminRewardsCard extends HTMLElement {
       </div>`;
   }
 
-  _fields(r) {
+  _fieldsHtml(r) {
     return `
       <label>Name<input type="text" name="name" value="${r.name}" placeholder="Movie Night"></label>
       <label>Cost<input type="number" name="cost" value="${r.cost}" min="1" placeholder="10"></label>
       <label>Icon<input type="text" name="icon" value="${r.icon}" placeholder="mdi:star"></label>
       <label>Description<input type="text" name="description" value="${r.description}" placeholder="Optional"></label>
       <label>Automation<input type="text" name="automation_id" value="${r.automation_id}" placeholder="automation.xyz (optional)"></label>`;
-  }
-
-  _bind(rewards) {
-    this.querySelector(".sc-toggle-add")?.addEventListener("click", () => {
-      this._showAddForm = !this._showAddForm; this._editingId = null; this._lastKey = null;
-      this._render(this._getRewards());
-    });
-    this.querySelectorAll(".sc-edit-btn").forEach(b => b.addEventListener("click", () => {
-      this._editingId = b.dataset.id; this._showAddForm = false; this._lastKey = null;
-      this._render(this._getRewards());
-    }));
-    this.querySelectorAll(".sc-del-btn").forEach(b => b.addEventListener("click", () => {
-      if (confirm(`Delete "${b.dataset.name}"?`))
-        this._hass.callService("sticker_chart", "remove_reward", { reward_id: b.dataset.id });
-    }));
-    this.querySelectorAll(".sc-auto-link").forEach(l => l.addEventListener("click", () => {
-      window.location.href = `/config/automation/edit/${l.dataset.auto.replace("automation.", "")}`;
-    }));
-    this.querySelectorAll(".sc-cancel").forEach(b => b.addEventListener("click", () => {
-      this._editingId = null; this._showAddForm = false; this._lastKey = null;
-      this._render(this._getRewards());
-    }));
-    this.querySelector(".sc-save-edit")?.addEventListener("click", () => this._doEdit());
-    this.querySelector(".sc-save-add")?.addEventListener("click", () => this._doAdd());
   }
 
   _doEdit() {
@@ -154,8 +181,7 @@ class StickerAdminRewardsCard extends HTMLElement {
     data.description = v("description");
     if (v("automation_id")) data.automation_id = v("automation_id");
     this._hass.callService("sticker_chart", "update_reward", data);
-    this._editingId = null; this._lastKey = null;
-    setTimeout(() => this._render(this._getRewards()), 500);
+    this._refreshAfterAction();
   }
 
   _doAdd() {
@@ -167,8 +193,7 @@ class StickerAdminRewardsCard extends HTMLElement {
     const data = { reward_name: name, cost, icon: v("icon") || "mdi:star", description: v("description") };
     if (v("automation_id")) data.automation_id = v("automation_id");
     this._hass.callService("sticker_chart", "add_reward", data);
-    this._showAddForm = false; this._lastKey = null;
-    setTimeout(() => this._render(this._getRewards()), 1500);
+    this._refreshAfterAction(2500); // add_reward triggers reload, needs more time
   }
 
   _styles() { return `
@@ -193,7 +218,7 @@ class StickerAdminRewardsCard extends HTMLElement {
     .sc-btn-del{background:#f44336;color:#fff;padding:8px 10px}
     .sc-btn-save{background:var(--primary-color,#03a9f4);color:#fff}
     .sc-btn-cancel{background:var(--secondary-background-color,#555);color:#fff}
-    .sc-form{padding:16px;margin-top:8px;border:2px solid var(--primary-color,#03a9f4);border-radius:12px;
+    .sc-form{padding:16px;margin-top:12px;border:2px solid var(--primary-color,#03a9f4);border-radius:12px;
       background:var(--card-background-color,#1e1e1e)}
     .sc-form-title{font-size:14px;font-weight:700;margin-bottom:8px}
     .sc-form label{display:block;font-size:12px;font-weight:600;opacity:0.6;margin-top:10px;
@@ -210,14 +235,14 @@ customElements.define("sticker-admin-rewards-card", StickerAdminRewardsCard);
 
 
 // ── Sticker Admin Kid Card ──────────────────────────────────────────────────
-// Config: { child_id: "abc123", color: "#f9a825" }
-// One card per kid. Shows balance, +1/+5/+10/-1 buttons, pending requests
-// with approve/deny.
+// Targeted DOM updates — only rebuilds the balance text and pending section,
+// not the whole card. Event listeners survive across updates.
 
 class StickerAdminKidCard extends HTMLElement {
   constructor() {
     super();
     this._lastKey = null;
+    this._built = false;
   }
 
   set hass(hass) {
@@ -228,7 +253,13 @@ class StickerAdminKidCard extends HTMLElement {
     const key = `${kid.balance}|${JSON.stringify(kid.pending)}`;
     if (key === this._lastKey) return;
     this._lastKey = key;
-    this._render(kid);
+
+    if (!this._built) {
+      this._buildShell(kid);
+      this._built = true;
+    } else {
+      this._updateData(kid);
+    }
   }
 
   setConfig(config) {
@@ -256,32 +287,8 @@ class StickerAdminKidCard extends HTMLElement {
     return null;
   }
 
-  _render(k) {
+  _buildShell(k) {
     const color = this._config.color || "#03a9f4";
-
-    let pendingHtml = "";
-    if (k.pending.length > 0) {
-      let reqRows = "";
-      for (const req of k.pending) {
-        reqRows += `
-          <div class="sk-pending-row">
-            <div class="sk-pending-info">
-              <span class="sk-pending-name">${req.reward_name}</span>
-              <span class="sk-pending-cost">${req.reward_cost} ⭐</span>
-            </div>
-            <div class="sk-pending-actions">
-              <button class="sc-btn sk-approve" data-id="${req.request_id}">✓ Approve</button>
-              <button class="sc-btn sk-deny" data-id="${req.request_id}">✕ Deny</button>
-            </div>
-          </div>`;
-      }
-      pendingHtml = `
-        <div class="sk-pending-section">
-          <div class="sk-pending-label">⏳ Pending Requests</div>
-          ${reqRows}
-        </div>`;
-    }
-
     this.innerHTML = `
       <ha-card>
         <div class="sk-wrap">
@@ -289,7 +296,7 @@ class StickerAdminKidCard extends HTMLElement {
             <div class="sk-avatar" style="background:${color};">${k.name.charAt(0)}</div>
             <div class="sk-info">
               <div class="sk-name">${k.name}</div>
-              <div class="sk-balance">${k.balance} ⭐ stickers</div>
+              <div class="sk-balance-text">${k.balance} ⭐ stickers</div>
             </div>
           </div>
           <div class="sk-buttons">
@@ -299,7 +306,7 @@ class StickerAdminKidCard extends HTMLElement {
             <button class="sc-btn sk-revoke" data-amount="1" style="background:#f44336;color:#fff;">−1</button>
             <button class="sc-btn sk-revoke" data-amount="5" style="background:#f44336;color:#fff;">−5</button>
           </div>
-          ${pendingHtml}
+          <div class="sk-pending-container"></div>
         </div>
       </ha-card>
       <style>
@@ -309,7 +316,7 @@ class StickerAdminKidCard extends HTMLElement {
           font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
         .sk-info{flex:1}
         .sk-name{font-size:20px;font-weight:700}
-        .sk-balance{font-size:15px;opacity:0.6;margin-top:2px}
+        .sk-balance-text{font-size:15px;opacity:0.6;margin-top:2px}
         .sk-buttons{display:flex;gap:8px;flex-wrap:wrap}
         .sk-buttons .sc-btn{padding:10px 18px;font-size:15px;font-weight:700;border-radius:10px;flex:1;min-width:50px}
         .sc-btn{border:none;border-radius:8px;cursor:pointer}
@@ -325,6 +332,7 @@ class StickerAdminKidCard extends HTMLElement {
         .sk-deny{background:#f44336!important;color:#fff!important;padding:8px 14px!important;font-size:13px!important;font-weight:600!important}
       </style>`;
 
+    // These listeners persist — they don't get rebuilt
     const cid = k.child_id;
     this.querySelectorAll(".sk-grant").forEach(b => b.addEventListener("click", () => {
       this._hass.callService("sticker_chart", "grant_stickers", {
@@ -336,10 +344,50 @@ class StickerAdminKidCard extends HTMLElement {
         child_id: cid, amount: parseInt(b.dataset.amount), reason: "Sticker admin"
       });
     }));
-    this.querySelectorAll(".sk-approve").forEach(b => b.addEventListener("click", () => {
+
+    this._updateData(k);
+  }
+
+  _updateData(k) {
+    // Update balance text without rebuilding
+    const balEl = this.querySelector(".sk-balance-text");
+    if (balEl) balEl.textContent = `${k.balance} ⭐ stickers`;
+
+    // Update pending section — this part does get rebuilt but it's small
+    const container = this.querySelector(".sk-pending-container");
+    if (!container) return;
+
+    if (k.pending.length === 0) {
+      container.innerHTML = "";
+      return;
+    }
+
+    let reqRows = "";
+    for (const req of k.pending) {
+      reqRows += `
+        <div class="sk-pending-row">
+          <div class="sk-pending-info">
+            <span class="sk-pending-name">${req.reward_name}</span>
+            <span class="sk-pending-cost">${req.reward_cost} ⭐</span>
+          </div>
+          <div class="sk-pending-actions">
+            <button class="sc-btn sk-approve" data-id="${req.request_id}">✓ Approve</button>
+            <button class="sc-btn sk-deny" data-id="${req.request_id}">✕ Deny</button>
+          </div>
+        </div>`;
+    }
+
+    container.innerHTML = `
+      <div class="sk-pending-section">
+        <div class="sk-pending-label">⏳ Pending Requests</div>
+        ${reqRows}
+      </div>`;
+
+    // Rebind only the pending buttons
+    container.querySelectorAll(".sk-approve").forEach(b => b.addEventListener("click", () => {
       this._hass.callService("sticker_chart", "approve_redemption", { request_id: b.dataset.id });
     }));
-    this.querySelectorAll(".sk-deny").forEach(b => b.addEventListener("click", () => {
+    container.querySelectorAll(".sk-deny").forEach(b => b.addEventListener("click", () => {
       this._hass.callService("sticker_chart", "deny_redemption", { request_id: b.dataset.id });
     }));
   }
