@@ -1,9 +1,23 @@
 // ── Sticker Reward Card ──────────────────────────────────────────────────────
 
 class StickerRewardCard extends HTMLElement {
+  constructor() {
+    super();
+    // Optimistic pending state — blocks re-taps immediately
+    this._optimisticPending = false;
+    this._animatingCost = false;
+  }
+
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
+
+    // If server confirms pending, clear the optimistic flag
+    const state = hass.states[this._config.entity];
+    if (state && state.attributes.has_pending) {
+      this._optimisticPending = false;
+    }
+
     this._render();
   }
 
@@ -20,6 +34,25 @@ class StickerRewardCard extends HTMLElement {
     return { entity: "" };
   }
 
+  _showCostAnimation(cost) {
+    // Create floating "-X ⭐" element that drifts up and fades out
+    const floater = document.createElement("div");
+    floater.textContent = `-${cost} ⭐`;
+    floater.style.cssText = `
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 32px; font-weight: 800; color: #fff;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      pointer-events: none; z-index: 10;
+      animation: floatUp 1.5s ease-out forwards;
+    `;
+    const card = this.querySelector("ha-card");
+    if (card) {
+      card.appendChild(floater);
+      setTimeout(() => floater.remove(), 1500);
+    }
+  }
+
   _render() {
     const entityId = this._config.entity;
     const state = this._hass.states[entityId];
@@ -33,11 +66,14 @@ class StickerRewardCard extends HTMLElement {
     const cost = attrs.reward_cost || 0;
     const balance = attrs.current_balance || 0;
     const canAfford = attrs.can_afford || false;
-    const hasPending = attrs.has_pending || false;
+    const serverPending = attrs.has_pending || false;
+    const hasPending = serverPending || this._optimisticPending;
     const status = attrs.status || "";
     const icon = attrs.icon || this._config.icon || "mdi:star";
     const progress = cost > 0 ? Math.min(balance / cost, 1) : 0;
     const progressPct = Math.round(progress * 100);
+
+    const isRedeemable = canAfford && !hasPending;
 
     let cardClass, statusIcon, statusText, bgGradient, iconColor, glowStyle;
 
@@ -75,23 +111,24 @@ class StickerRewardCard extends HTMLElement {
         background: ${bgGradient};
         border-radius: 20px;
         overflow: hidden;
-        cursor: ${canAfford && !hasPending ? "pointer" : "default"};
+        cursor: ${isRedeemable ? "pointer" : "default"};
         box-shadow: ${glowStyle};
-        transition: all 0.3s ease;
+        transition: all 0.4s ease;
         position: relative;
       ">
         ${hasPending ? '<div class="pulse-overlay"></div>' : ""}
-        ${canAfford && !hasPending ? '<div class="shimmer"></div>' : ""}
+        ${isRedeemable ? '<div class="shimmer"></div>' : ""}
 
         <div style="padding: 20px; position: relative; z-index: 1;">
           <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px;">
-            <div style="
+            <div class="icon-box" style="
               width: 56px; height: 56px;
               border-radius: 16px;
               background: rgba(255,255,255,0.15);
               display: flex; align-items: center; justify-content: center;
               font-size: 28px;
               backdrop-filter: blur(10px);
+              transition: transform 0.3s ease;
             ">
               <ha-icon icon="${icon}" style="color: ${iconColor}; --mdc-icon-size: 32px;"></ha-icon>
             </div>
@@ -127,16 +164,17 @@ class StickerRewardCard extends HTMLElement {
                 background: ${progressColor};
                 border-radius: 6px;
                 transition: width 0.5s ease;
-                ${canAfford ? "animation: progressGlow 2s ease-in-out infinite;" : ""}
+                ${canAfford && !hasPending ? "animation: progressGlow 2s ease-in-out infinite;" : ""}
               "></div>
             </div>
           </div>
 
-          <div style="
+          <div class="status-bar" style="
             text-align: center; padding: 10px 16px;
             background: rgba(0,0,0,0.2); border-radius: 12px;
             font-size: 15px; font-weight: 600; color: #fff;
-            ${canAfford && !hasPending ? "animation: bounce 2s ease-in-out infinite;" : ""}
+            transition: all 0.3s ease;
+            ${isRedeemable ? "animation: bounce 2s ease-in-out infinite;" : ""}
           ">
             ${statusIcon} ${statusText}
           </div>
@@ -160,6 +198,17 @@ class StickerRewardCard extends HTMLElement {
           0% { transform: translateX(-100%); }
           100% { transform: translateX(100%); }
         }
+        @keyframes floatUp {
+          0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+          30% { opacity: 1; transform: translate(-50%, -80%) scale(1.3); }
+          100% { opacity: 0; transform: translate(-50%, -180%) scale(0.8); }
+        }
+        @keyframes cardPop {
+          0% { transform: scale(1); }
+          15% { transform: scale(0.95); }
+          40% { transform: scale(1.02); }
+          100% { transform: scale(1); }
+        }
         .sticker-reward.ready:active {
           transform: scale(0.97);
         }
@@ -178,9 +227,25 @@ class StickerRewardCard extends HTMLElement {
       </style>
     `;
 
-    if (canAfford && !hasPending) {
+    if (isRedeemable) {
       this.querySelector("ha-card").addEventListener("click", () => {
+        if (this._optimisticPending) return; // double-tap guard
+
+        // Optimistic UI: immediately flip to pending
+        this._optimisticPending = true;
+
+        // Animate cost deduction
+        this._showCostAnimation(cost);
+
+        // Pop the card
+        const card = this.querySelector("ha-card");
+        if (card) card.style.animation = "cardPop 0.4s ease-out";
+
+        // Fire the actual service call
         this._hass.callService("button", "press", { entity_id: entityId });
+
+        // Re-render into pending state after a brief moment for the animation
+        setTimeout(() => this._render(), 300);
       });
     }
   }

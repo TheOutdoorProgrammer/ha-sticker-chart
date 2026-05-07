@@ -215,16 +215,16 @@ class StickerChartStore:
     async def async_request_redemption(
         self, child_id: str, reward_id: str
     ) -> str:
-        """Create a pending redemption request. Returns request ID."""
+        """Create a pending redemption request. Deducts stickers immediately. Returns request ID."""
         if child_id not in self._data["children"]:
             raise ValueError(f"Child {child_id} not found")
         if reward_id not in self._data["rewards"]:
             raise ValueError(f"Reward {reward_id} not found")
         reward = self._data["rewards"][reward_id]
-        balance = self._data["children"][child_id]["stickers"]
-        if balance < reward["cost"]:
+        child = self._data["children"][child_id]
+        if child["stickers"] < reward["cost"]:
             raise ValueError(
-                f"Not enough stickers. Need {reward['cost']}, have {balance}"
+                f"Not enough stickers. Need {reward['cost']}, have {child['stickers']}"
             )
         # Check for duplicate pending request
         for req in self._data["pending_requests"].values():
@@ -232,17 +232,35 @@ class StickerChartStore:
                 raise ValueError(
                     f"Already have a pending request for this reward"
                 )
+
+        # Deduct stickers immediately on request
+        child["stickers"] -= reward["cost"]
+
         request_id = _new_id()
         self._data["pending_requests"][request_id] = {
             "child_id": child_id,
             "reward_id": reward_id,
+            "cost_deducted": reward["cost"],
             "timestamp": _now_iso(),
         }
+
+        # Record history
+        self._data["history"].append(
+            {
+                "type": "redeem",
+                "child_id": child_id,
+                "reward_id": reward_id,
+                "amount": reward["cost"],
+                "reward_name": reward["name"],
+                "timestamp": _now_iso(),
+            }
+        )
+
         await self._async_save()
         return request_id
 
     async def async_approve_redemption(self, request_id: str) -> dict[str, Any]:
-        """Approve a redemption. Deducts stickers. Returns request details."""
+        """Approve a redemption. Stickers already deducted on request. Returns request details."""
         if request_id not in self._data["pending_requests"]:
             raise ValueError(f"Request {request_id} not found")
         request = self._data["pending_requests"][request_id]
@@ -257,27 +275,7 @@ class StickerChartStore:
         reward = self._data["rewards"][reward_id]
         child = self._data["children"][child_id]
 
-        if child["stickers"] < reward["cost"]:
-            raise ValueError(
-                f"Not enough stickers. Need {reward['cost']}, have {child['stickers']}"
-            )
-
-        # Deduct stickers
-        child["stickers"] -= reward["cost"]
-
-        # Record history
-        self._data["history"].append(
-            {
-                "type": "redeem",
-                "child_id": child_id,
-                "reward_id": reward_id,
-                "amount": reward["cost"],
-                "reward_name": reward["name"],
-                "timestamp": _now_iso(),
-            }
-        )
-
-        # Remove the pending request
+        # Remove the pending request (stickers already deducted)
         del self._data["pending_requests"][request_id]
         await self._async_save()
 
@@ -286,21 +284,39 @@ class StickerChartStore:
             "child_name": child["name"],
             "reward_id": reward_id,
             "reward_name": reward["name"],
-            "reward_cost": reward["cost"],
+            "reward_cost": request.get("cost_deducted", reward["cost"]),
             "automation_id": reward.get("automation_id"),
             "new_balance": child["stickers"],
         }
 
     async def async_deny_redemption(self, request_id: str) -> dict[str, Any]:
-        """Deny a redemption. Stickers untouched. Returns request details."""
+        """Deny a redemption. Refunds the deducted stickers. Returns request details."""
         if request_id not in self._data["pending_requests"]:
             raise ValueError(f"Request {request_id} not found")
         request = self._data["pending_requests"][request_id]
         child_id = request["child_id"]
         reward_id = request["reward_id"]
+        cost_deducted = request.get("cost_deducted", 0)
 
         child_name = self._data["children"].get(child_id, {}).get("name", "Unknown")
         reward_name = self._data["rewards"].get(reward_id, {}).get("name", "Unknown")
+
+        # Refund stickers
+        if child_id in self._data["children"] and cost_deducted > 0:
+            self._data["children"][child_id]["stickers"] += cost_deducted
+            self._data["history"].append(
+                {
+                    "type": "refund",
+                    "child_id": child_id,
+                    "reward_id": reward_id,
+                    "amount": cost_deducted,
+                    "reward_name": reward_name,
+                    "reason": "Redemption denied",
+                    "timestamp": _now_iso(),
+                }
+            )
+
+        new_balance = self._data["children"].get(child_id, {}).get("stickers", 0)
 
         del self._data["pending_requests"][request_id]
         await self._async_save()
@@ -310,6 +326,8 @@ class StickerChartStore:
             "child_name": child_name,
             "reward_id": reward_id,
             "reward_name": reward_name,
+            "refunded": cost_deducted,
+            "new_balance": new_balance,
         }
 
     def get_pending_requests_for_child(self, child_id: str) -> list[dict[str, Any]]:

@@ -198,7 +198,7 @@ async def test_update_reward_invalid_field(loaded_store):
 
 @pytest.mark.asyncio
 async def test_request_redemption(loaded_store):
-    """Test requesting a reward redemption."""
+    """Test requesting a reward redemption deducts stickers immediately."""
     child_id = await loaded_store.async_add_child("Alice")
     reward_id = await loaded_store.async_add_reward("Treat", 5)
     await loaded_store.async_grant_stickers(child_id, 10)
@@ -207,6 +207,9 @@ async def test_request_redemption(loaded_store):
     assert request_id in loaded_store.pending_requests
     assert loaded_store.pending_requests[request_id]["child_id"] == child_id
     assert loaded_store.pending_requests[request_id]["reward_id"] == reward_id
+    assert loaded_store.pending_requests[request_id]["cost_deducted"] == 5
+    # Stickers deducted immediately
+    assert loaded_store.get_child_balance(child_id) == 5
 
 
 @pytest.mark.asyncio
@@ -234,51 +237,44 @@ async def test_request_redemption_duplicate_blocked(loaded_store):
 
 @pytest.mark.asyncio
 async def test_approve_redemption(loaded_store):
-    """Test approving a redemption."""
+    """Test approving a redemption. Stickers already deducted on request."""
     child_id = await loaded_store.async_add_child("Alice")
     reward_id = await loaded_store.async_add_reward("Treat", 5, automation_id="automation.test")
     await loaded_store.async_grant_stickers(child_id, 10)
 
     request_id = await loaded_store.async_request_redemption(child_id, reward_id)
+    # Balance is 5 after request (10 - 5)
+    assert loaded_store.get_child_balance(child_id) == 5
+
     result = await loaded_store.async_approve_redemption(request_id)
 
     assert result["child_name"] == "Alice"
     assert result["reward_name"] == "Treat"
     assert result["reward_cost"] == 5
     assert result["automation_id"] == "automation.test"
-    assert result["new_balance"] == 5
+    assert result["new_balance"] == 5  # Unchanged from request
     assert loaded_store.get_child_balance(child_id) == 5
     assert request_id not in loaded_store.pending_requests
 
 
 @pytest.mark.asyncio
-async def test_approve_redemption_insufficient_funds_after_request(loaded_store):
-    """Test that approval fails if stickers were spent after requesting."""
-    child_id = await loaded_store.async_add_child("Alice")
-    reward_id = await loaded_store.async_add_reward("Treat", 5)
-    await loaded_store.async_grant_stickers(child_id, 6)
-
-    request_id = await loaded_store.async_request_redemption(child_id, reward_id)
-    # Revoke stickers after the request
-    await loaded_store.async_revoke_stickers(child_id, 5)
-
-    with pytest.raises(ValueError, match="Not enough stickers"):
-        await loaded_store.async_approve_redemption(request_id)
-
-
-@pytest.mark.asyncio
-async def test_deny_redemption(loaded_store):
-    """Test denying a redemption."""
+async def test_deny_redemption_refunds_stickers(loaded_store):
+    """Test denying a redemption refunds the deducted stickers."""
     child_id = await loaded_store.async_add_child("Alice")
     reward_id = await loaded_store.async_add_reward("Treat", 5)
     await loaded_store.async_grant_stickers(child_id, 10)
 
     request_id = await loaded_store.async_request_redemption(child_id, reward_id)
+    # Balance is 5 after request
+    assert loaded_store.get_child_balance(child_id) == 5
+
     result = await loaded_store.async_deny_redemption(request_id)
 
     assert result["child_name"] == "Alice"
     assert result["reward_name"] == "Treat"
-    assert loaded_store.get_child_balance(child_id) == 10  # Untouched
+    assert result["refunded"] == 5
+    assert result["new_balance"] == 10
+    assert loaded_store.get_child_balance(child_id) == 10  # Refunded
     assert request_id not in loaded_store.pending_requests
 
 
@@ -287,13 +283,14 @@ async def test_deny_redemption(loaded_store):
 
 @pytest.mark.asyncio
 async def test_history_recorded(loaded_store):
-    """Test that grant/revoke/redeem are recorded in history."""
+    """Test that grant/revoke/redeem/refund are recorded in history."""
     child_id = await loaded_store.async_add_child("Alice")
     reward_id = await loaded_store.async_add_reward("Treat", 5)
 
     await loaded_store.async_grant_stickers(child_id, 10, "Good job")
     await loaded_store.async_revoke_stickers(child_id, 2, "Oops")
 
+    # Request deducts + records history
     request_id = await loaded_store.async_request_redemption(child_id, reward_id)
     await loaded_store.async_approve_redemption(request_id)
 
@@ -306,6 +303,24 @@ async def test_history_recorded(loaded_store):
     assert history[1]["amount"] == 2
     assert history[2]["type"] == "redeem"
     assert history[2]["amount"] == 5
+
+
+@pytest.mark.asyncio
+async def test_deny_records_refund_history(loaded_store):
+    """Test that denying records a refund in history."""
+    child_id = await loaded_store.async_add_child("Alice")
+    reward_id = await loaded_store.async_add_reward("Treat", 5)
+    await loaded_store.async_grant_stickers(child_id, 10)
+
+    request_id = await loaded_store.async_request_redemption(child_id, reward_id)
+    await loaded_store.async_deny_redemption(request_id)
+
+    history = loaded_store.get_child_history(child_id)
+    # grant + redeem (from request) + refund (from deny)
+    assert len(history) == 3
+    assert history[2]["type"] == "refund"
+    assert history[2]["amount"] == 5
+    assert history[2]["reason"] == "Redemption denied"
 
 
 @pytest.mark.asyncio
