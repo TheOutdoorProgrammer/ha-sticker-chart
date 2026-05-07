@@ -1,0 +1,205 @@
+add_child:
+  name: Add Child
+  description: Add a new child to the sticker chart.
+  fields:
+    child_name:
+      name: Child Name
+      description: The name of the child to add.
+      required: true
+      example: "Alice"
+      selector:
+        text:
+
+remove_child:
+  name: Remove Child
+  description: Remove a child from the sticker chart.
+  fields:
+    child_id:
+      name: Child ID
+      description: The ID of the child to remove.
+      required: true
+      example: "a1b2c3d4"
+      selector:
+        text:
+
+grant_stickers:
+  name: Grant Stickers
+  description: Award stickers to a child.
+  fields:
+    child_id:
+      name: Child ID
+      description: The ID of the child to grant stickers to.
+      required: true
+      selector:
+        text:
+    amount:
+      name: Amount
+      description: Number of stickers to grant.
+      required: true
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    reason:
+      name: Reason
+      description: Reason for granting stickers.
+      required: false
+      example: "Cleaned their room"
+      selector:
+        text:
+
+revoke_stickers:
+  name: Revoke Stickers
+  description: Remove stickers from a child.
+  fields:
+    child_id:
+      name: Child ID
+      description: The ID of the child to revoke stickers from.
+      required: true
+      selector:
+        text:
+    amount:
+      name: Amount
+      description: Number of stickers to revoke.
+      required: true
+      example: 2
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    reason:
+      name: Reason
+      description: Reason for revoking stickers.
+      required: false
+      example: "Didn't do homework"
+      selector:
+        text:
+
+add_reward:
+  name: Add Reward
+  description: Add a new reward to the sticker chart.
+  fields:
+    reward_name:
+      name: Reward Name
+      description: The name of the reward.
+      required: true
+      example: "Ice Cream"
+      selector:
+        text:
+    cost:
+      name: Cost
+      description: Number of stickers required to redeem this reward.
+      required: true
+      example: 10
+      selector:
+        number:
+          min: 1
+          max: 10000
+          mode: box
+    icon:
+      name: Icon
+      description: Material Design Icon for the reward.
+      required: false
+      example: "mdi:ice-cream"
+      selector:
+        icon:
+    automation_id:
+      name: Automation ID
+      description: Optional automation entity ID to trigger when this reward is approved.
+      required: false
+      example: "automation.grant_screen_time"
+      selector:
+        entity:
+          domain: automation
+
+remove_reward:
+  name: Remove Reward
+  description: Remove a reward from the sticker chart.
+  fields:
+    reward_id:
+      name: Reward ID
+      description: The ID of the reward to remove.
+      required: true
+      selector:
+        text:
+
+update_reward:
+  name: Update Reward
+  description: Update an existing reward's properties.
+  fields:
+    reward_id:
+      name: Reward ID
+      description: The ID of the reward to update.
+      required: true
+      selector:
+        text:
+    reward_name:
+      name: New Name
+      description: New name for the reward.
+      required: false
+      selector:
+        text:
+    cost:
+      name: New Cost
+      description: New sticker cost for the reward.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 10000
+          mode: box
+    icon:
+      name: New Icon
+      description: New icon for the reward.
+      required: false
+      selector:
+        icon:
+    automation_id:
+      name: New Automation ID
+      description: New automation entity ID.
+      required: false
+      selector:
+        entity:
+          domain: automation
+
+request_redemption:
+  name: Request Redemption
+  description: Request to redeem a reward (creates a pending approval request).
+  fields:
+    child_id:
+      name: Child ID
+      description: The ID of the child requesting the reward.
+      required: true
+      selector:
+        text:
+    reward_id:
+      name: Reward ID
+      description: The ID of the reward to redeem.
+      required: true
+      selector:
+        text:
+
+approve_redemption:
+  name: Approve Redemption
+  description: Approve a pending reward redemption request. Deducts stickers and fires approval event.
+  fields:
+    request_id:
+      name: Request ID
+      description: The ID of the pending request to approve.
+      required: true
+      selector:
+        text:
+
+deny_redemption:
+  name: Deny Redemption
+  description: Deny a pending reward redemption request. Stickers are not deducted.
+  fields:
+    request_id:
+      name: Request ID
+      description: The ID of the pending request to deny.
+      required: true
+      selector:
+        text:

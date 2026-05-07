@@ -1,0 +1,13 @@
+[project]
+name = "ha-sticker-chart"
+version = "1.0.0"
+description = "Home Assistant custom integration for kids' sticker reward charts"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100

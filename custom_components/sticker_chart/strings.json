@@ -1,0 +1,68 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sticker Chart",
+        "description": "Set up the Sticker Chart integration. After setup, use the integration's options menu or services to add children and rewards."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Sticker Chart instance is allowed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Sticker Chart Management",
+        "menu_options": {
+          "add_child": "Add a child",
+          "remove_child": "Remove a child",
+          "add_reward": "Add a reward",
+          "remove_reward": "Remove a reward",
+          "update_reward": "Update a reward"
+        }
+      },
+      "add_child": {
+        "title": "Add Child",
+        "data": {
+          "name": "Child's Name"
+        }
+      },
+      "remove_child": {
+        "title": "Remove Child",
+        "data": {
+          "child_id": "Select Child"
+        }
+      },
+      "add_reward": {
+        "title": "Add Reward",
+        "data": {
+          "name": "Reward Name",
+          "cost": "Sticker Cost",
+          "icon": "Icon (e.g. mdi:ice-cream)",
+          "automation_id": "Automation to trigger (optional)"
+        }
+      },
+      "remove_reward": {
+        "title": "Remove Reward",
+        "data": {
+          "reward_id": "Select Reward"
+        }
+      },
+      "update_reward": {
+        "title": "Update Reward",
+        "data": {
+          "reward_id": "Select Reward",
+          "name": "New Name (leave empty to keep current)",
+          "cost": "New Cost (leave empty to keep current)",
+          "icon": "New Icon (leave empty to keep current)",
+          "automation_id": "New Automation ID (leave empty to keep current)"
+        }
+      }
+    },
+    "abort": {
+      "no_children": "No children configured yet. Add a child first.",
+      "no_rewards": "No rewards configured yet. Add a reward first."
+    }
+  }
+}
