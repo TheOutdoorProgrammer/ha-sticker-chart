@@ -67,23 +67,6 @@ class RewardRedemptionButton(ButtonEntity):
         self._attr_icon = reward_data.get("icon", "mdi:star")
 
     @property
-    def available(self) -> bool:
-        """Return True if the child can afford this reward and has no pending request."""
-        try:
-            balance = self._store.get_child_balance(self._child_id)
-            cost = self._store.rewards.get(self._reward_id, {}).get("cost", 0)
-            # Also check for existing pending request for this reward
-            for req in self._store.pending_requests.values():
-                if (
-                    req["child_id"] == self._child_id
-                    and req["reward_id"] == self._reward_id
-                ):
-                    return False  # Already pending
-            return balance >= cost
-        except (ValueError, KeyError):
-            return False
-
-    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra attributes."""
         reward = self._store.rewards.get(self._reward_id, {})
@@ -92,6 +75,25 @@ class RewardRedemptionButton(ButtonEntity):
         except ValueError:
             balance = 0
         cost = reward.get("cost", 0)
+        can_afford = balance >= cost
+
+        # Check for pending request
+        has_pending = False
+        for req in self._store.pending_requests.values():
+            if (
+                req["child_id"] == self._child_id
+                and req["reward_id"] == self._reward_id
+            ):
+                has_pending = True
+                break
+
+        if has_pending:
+            status = "Waiting for approval"
+        elif not can_afford:
+            status = f"Need {cost - balance} more stickers"
+        else:
+            status = "Ready to redeem!"
+
         return {
             "child_id": self._child_id,
             "child_name": self._child_name,
@@ -99,7 +101,9 @@ class RewardRedemptionButton(ButtonEntity):
             "reward_name": reward.get("name", "Unknown"),
             "reward_cost": cost,
             "current_balance": balance,
-            "can_afford": balance >= cost,
+            "can_afford": can_afford,
+            "has_pending": has_pending,
+            "status": status,
             "automation_id": reward.get("automation_id"),
         }
 
