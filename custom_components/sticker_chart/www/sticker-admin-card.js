@@ -207,11 +207,12 @@ class StickerAdminRewardsCard extends HTMLElement {
 customElements.define("sticker-admin-rewards-card", StickerAdminRewardsCard);
 
 
-// ── Sticker Admin Kids Card ─────────────────────────────────────────────────
-// Shows all kids with balance, pending requests, +1/+5/-1 sticker buttons,
-// and approve/deny for pending requests.
+// ── Sticker Admin Kid Card ──────────────────────────────────────────────────
+// Config: { child_id: "abc123", color: "#f9a825" }
+// One card per kid. Shows balance, +1/+5/+10/-1 buttons, pending requests
+// with approve/deny.
 
-class StickerAdminKidsCard extends HTMLElement {
+class StickerAdminKidCard extends HTMLElement {
   constructor() {
     super();
     this._lastKey = null;
@@ -220,111 +221,117 @@ class StickerAdminKidsCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
-    const kids = this._getKids();
-    const key = JSON.stringify(kids);
+    const kid = this._getKid();
+    if (!kid) return;
+    const key = `${kid.balance}|${JSON.stringify(kid.pending)}`;
     if (key === this._lastKey) return;
     this._lastKey = key;
-    this._render(kids);
+    this._render(kid);
   }
 
-  setConfig(config) { this._config = config; }
-  getCardSize() { return 5; }
-  static getStubConfig() { return {}; }
+  setConfig(config) {
+    if (!config.child_id) throw new Error("child_id is required");
+    this._config = config;
+  }
 
-  _getKids() {
-    const kids = [];
+  getCardSize() { return 3; }
+  static getStubConfig() { return { child_id: "", color: "#03a9f4" }; }
+
+  _getKid() {
+    const cid = this._config.child_id;
     for (const [eid, state] of Object.entries(this._hass.states)) {
       if (!eid.startsWith("sensor.") || !eid.includes("sticker_balance")) continue;
-      if (!state.attributes.child_id) continue;
-      const childId = state.attributes.child_id;
+      if (state.attributes.child_id !== cid) continue;
       const pendingEid = eid.replace("sticker_balance", "pending_requests");
       const pendingState = this._hass.states[pendingEid];
-      kids.push({
-        child_id: childId,
+      return {
+        child_id: cid,
         name: state.attributes.child_name || "Kid",
         balance: parseInt(state.state) || 0,
         pending: pendingState?.attributes?.pending_requests || [],
-        balance_entity: eid,
-        pending_entity: pendingEid,
-      });
+      };
     }
-    kids.sort((a, b) => a.name.localeCompare(b.name));
-    return kids;
+    return null;
   }
 
-  _render(kids) {
-    const colors = ["#f9a825", "#e91e63", "#2196f3", "#4caf50", "#9c27b0", "#ff5722"];
+  _render(k) {
+    const color = this._config.color || "#03a9f4";
 
-    let kidsHtml = "";
-    for (let i = 0; i < kids.length; i++) {
-      const k = kids[i];
-      const color = colors[i % colors.length];
-
-      let pendingHtml = "";
-      if (k.pending.length > 0) {
-        let reqRows = "";
-        for (const req of k.pending) {
-          reqRows += `
-            <div class="sk-pending-row">
-              <div class="sk-pending-info">
-                <span class="sk-pending-name">${req.reward_name}</span>
-                <span class="sk-pending-cost">${req.reward_cost} ⭐</span>
-              </div>
-              <div class="sk-pending-actions">
-                <button class="sc-btn sk-approve" data-id="${req.request_id}" data-child="${k.name}">✓ Approve</button>
-                <button class="sc-btn sk-deny" data-id="${req.request_id}" data-child="${k.name}">✕ Deny</button>
-              </div>
-            </div>`;
-        }
-        pendingHtml = `
-          <div class="sk-pending-section">
-            <div class="sk-pending-label">⏳ Pending Requests</div>
-            ${reqRows}
+    let pendingHtml = "";
+    if (k.pending.length > 0) {
+      let reqRows = "";
+      for (const req of k.pending) {
+        reqRows += `
+          <div class="sk-pending-row">
+            <div class="sk-pending-info">
+              <span class="sk-pending-name">${req.reward_name}</span>
+              <span class="sk-pending-cost">${req.reward_cost} ⭐</span>
+            </div>
+            <div class="sk-pending-actions">
+              <button class="sc-btn sk-approve" data-id="${req.request_id}">✓ Approve</button>
+              <button class="sc-btn sk-deny" data-id="${req.request_id}">✕ Deny</button>
+            </div>
           </div>`;
       }
-
-      kidsHtml += `
-        <div class="sk-kid">
-          <div class="sk-kid-header">
-            <div class="sk-kid-avatar" style="background:${color};">
-              ${k.name.charAt(0)}
-            </div>
-            <div class="sk-kid-info">
-              <div class="sk-kid-name">${k.name}</div>
-              <div class="sk-kid-balance">${k.balance} ⭐ stickers</div>
-            </div>
-            <div class="sk-kid-buttons">
-              <button class="sc-btn sk-grant" data-child="${k.child_id}" data-amount="1" style="background:#4caf50;color:#fff;">+1</button>
-              <button class="sc-btn sk-grant" data-child="${k.child_id}" data-amount="5" style="background:#2196f3;color:#fff;">+5</button>
-              <button class="sc-btn sk-grant" data-child="${k.child_id}" data-amount="10" style="background:#9c27b0;color:#fff;">+10</button>
-              <button class="sc-btn sk-revoke" data-child="${k.child_id}" data-amount="1" style="background:#f44336;color:#fff;">−1</button>
-            </div>
-          </div>
-          ${pendingHtml}
+      pendingHtml = `
+        <div class="sk-pending-section">
+          <div class="sk-pending-label">⏳ Pending Requests</div>
+          ${reqRows}
         </div>`;
     }
 
     this.innerHTML = `
       <ha-card>
         <div class="sk-wrap">
-          <div class="sk-title">Kids</div>
-          <div class="sk-kids">${kidsHtml}</div>
+          <div class="sk-header">
+            <div class="sk-avatar" style="background:${color};">${k.name.charAt(0)}</div>
+            <div class="sk-info">
+              <div class="sk-name">${k.name}</div>
+              <div class="sk-balance">${k.balance} ⭐ stickers</div>
+            </div>
+          </div>
+          <div class="sk-buttons">
+            <button class="sc-btn sk-grant" data-amount="1" style="background:#4caf50;color:#fff;">+1</button>
+            <button class="sc-btn sk-grant" data-amount="5" style="background:#2196f3;color:#fff;">+5</button>
+            <button class="sc-btn sk-grant" data-amount="10" style="background:#9c27b0;color:#fff;">+10</button>
+            <button class="sc-btn sk-revoke" data-amount="1" style="background:#f44336;color:#fff;">−1</button>
+            <button class="sc-btn sk-revoke" data-amount="5" style="background:#f44336;color:#fff;">−5</button>
+          </div>
+          ${pendingHtml}
         </div>
       </ha-card>
-      <style>${this._styles()}</style>`;
+      <style>
+        .sk-wrap{padding:20px}
+        .sk-header{display:flex;align-items:center;gap:14px;margin-bottom:14px}
+        .sk-avatar{width:52px;height:52px;border-radius:50%;color:#fff;
+          font-size:24px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        .sk-info{flex:1}
+        .sk-name{font-size:20px;font-weight:700}
+        .sk-balance{font-size:15px;opacity:0.6;margin-top:2px}
+        .sk-buttons{display:flex;gap:8px;flex-wrap:wrap}
+        .sk-buttons .sc-btn{padding:10px 18px;font-size:15px;font-weight:700;border-radius:10px;flex:1;min-width:50px}
+        .sc-btn{border:none;border-radius:8px;cursor:pointer}
+        .sk-pending-section{margin-top:14px;padding-top:14px;border-top:1px solid var(--divider-color,#333)}
+        .sk-pending-label{font-size:12px;font-weight:600;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px}
+        .sk-pending-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+          padding:10px 12px;background:rgba(255,152,0,0.08);border-radius:8px;margin-bottom:6px}
+        .sk-pending-info{display:flex;align-items:center;gap:8px}
+        .sk-pending-name{font-size:14px;font-weight:600}
+        .sk-pending-cost{font-size:13px;opacity:0.5}
+        .sk-pending-actions{display:flex;gap:6px}
+        .sk-approve{background:#4caf50!important;color:#fff!important;padding:8px 14px!important;font-size:13px!important;font-weight:600!important}
+        .sk-deny{background:#f44336!important;color:#fff!important;padding:8px 14px!important;font-size:13px!important;font-weight:600!important}
+      </style>`;
 
-    this._bind();
-  }
-
-  _bind() {
+    const cid = k.child_id;
     this.querySelectorAll(".sk-grant").forEach(b => b.addEventListener("click", () => {
       this._hass.callService("sticker_chart", "grant_stickers", {
-        child_id: b.dataset.child, amount: parseInt(b.dataset.amount), reason: "Sticker admin"
+        child_id: cid, amount: parseInt(b.dataset.amount), reason: "Sticker admin"
       });
     }));
     this.querySelectorAll(".sk-revoke").forEach(b => b.addEventListener("click", () => {
       this._hass.callService("sticker_chart", "revoke_stickers", {
-        child_id: b.dataset.child, amount: parseInt(b.dataset.amount), reason: "Sticker admin"
+        child_id: cid, amount: parseInt(b.dataset.amount), reason: "Sticker admin"
       });
     }));
     this.querySelectorAll(".sk-approve").forEach(b => b.addEventListener("click", () => {
@@ -334,35 +341,9 @@ class StickerAdminKidsCard extends HTMLElement {
       this._hass.callService("sticker_chart", "deny_redemption", { request_id: b.dataset.id });
     }));
   }
-
-  _styles() { return `
-    .sk-wrap{padding:20px}
-    .sk-title{font-size:18px;font-weight:700;margin-bottom:16px}
-    .sk-kids{display:flex;flex-direction:column;gap:12px}
-    .sk-kid{padding:16px;background:var(--card-background-color,#1e1e1e);
-      border:1px solid var(--divider-color,#333);border-radius:12px}
-    .sk-kid-header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-    .sk-kid-avatar{width:48px;height:48px;border-radius:50%;color:#fff;
-      font-size:22px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-    .sk-kid-info{flex:1;min-width:120px}
-    .sk-kid-name{font-size:17px;font-weight:700}
-    .sk-kid-balance{font-size:14px;opacity:0.6;margin-top:2px}
-    .sk-kid-buttons{display:flex;gap:6px;flex-wrap:wrap}
-    .sk-kid-buttons .sc-btn{padding:8px 14px;font-size:14px;font-weight:700;border-radius:10px}
-    .sk-pending-section{margin-top:12px;padding-top:12px;border-top:1px solid var(--divider-color,#333)}
-    .sk-pending-label{font-size:12px;font-weight:600;opacity:0.5;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px}
-    .sk-pending-row{display:flex;align-items:center;justify-content:space-between;gap:8px;
-      padding:10px 12px;background:rgba(255,152,0,0.08);border-radius:8px;margin-bottom:6px}
-    .sk-pending-info{display:flex;align-items:center;gap:8px}
-    .sk-pending-name{font-size:14px;font-weight:600}
-    .sk-pending-cost{font-size:13px;opacity:0.5}
-    .sk-pending-actions{display:flex;gap:6px}
-    .sk-approve{background:#4caf50!important;color:#fff!important;padding:6px 12px!important;font-size:12px!important}
-    .sk-deny{background:#f44336!important;color:#fff!important;padding:6px 12px!important;font-size:12px!important}
-  `; }
 }
 
-customElements.define("sticker-admin-kids-card", StickerAdminKidsCard);
+customElements.define("sticker-admin-kid-card", StickerAdminKidCard);
 
 
 // ── Card Registration ───────────────────────────────────────────────────────
@@ -376,9 +357,9 @@ window.customCards.push(
     preview: true,
   },
   {
-    type: "sticker-admin-kids-card",
-    name: "Sticker Admin Kids Card",
-    description: "Manage stickers and approve/deny requests for all kids",
+    type: "sticker-admin-kid-card",
+    name: "Sticker Admin Kid Card",
+    description: "Manage stickers and approve/deny for a single kid",
     preview: true,
   },
 );
