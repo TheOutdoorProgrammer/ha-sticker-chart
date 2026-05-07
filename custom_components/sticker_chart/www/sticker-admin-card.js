@@ -11,9 +11,11 @@ class StickerAdminRewardsCard extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!this._config) return;
+    // Never re-render while a form is open — it would destroy user input
+    if (this._editingId || this._showAddForm) return;
     const rewards = this._getRewards();
     const key = JSON.stringify(rewards);
-    if (key === this._lastKey && !this._editingId && !this._showAddForm) return;
+    if (key === this._lastKey) return;
     this._lastKey = key;
     this._render(rewards);
   }
