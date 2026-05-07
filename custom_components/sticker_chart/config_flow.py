@@ -13,6 +13,7 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.core import callback
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import DOMAIN
 
@@ -187,7 +188,7 @@ class StickerChartOptionsFlow(OptionsFlow):
             if updates:
                 await store.async_update_reward(reward_id, **updates)
                 # Signal update to entities
-                self.hass.bus.async_fire(f"{DOMAIN}_data_updated")
+                async_dispatcher_send(self.hass, f"{DOMAIN}_update")
             return self.async_create_entry(data={})
 
         reward_options = {

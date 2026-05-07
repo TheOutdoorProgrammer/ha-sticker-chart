@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     ATTR_AMOUNT,
@@ -344,7 +345,10 @@ def _register_services(hass: HomeAssistant, store: StickerChartStore) -> None:
     )
 
 
+SIGNAL_STICKER_UPDATE = f"{DOMAIN}_update"
+
+
 @callback
 def _signal_update(hass: HomeAssistant) -> None:
     """Signal all sticker chart entities to update their state."""
-    hass.bus.async_fire(f"{DOMAIN}_data_updated")
+    async_dispatcher_send(hass, SIGNAL_STICKER_UPDATE)

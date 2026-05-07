@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -84,13 +85,13 @@ class StickerBalanceSensor(SensorEntity):
     async def async_added_to_hass(self) -> None:
         """Register update listener."""
         self.async_on_remove(
-            self.hass.bus.async_listen(
-                f"{DOMAIN}_data_updated", self._handle_update
+            async_dispatcher_connect(
+                self.hass, f"{DOMAIN}_update", self._handle_update
             )
         )
 
     @callback
-    def _handle_update(self, event: Any) -> None:
+    def _handle_update(self) -> None:
         """Handle data update signal."""
         self.async_write_ha_state()
 
@@ -139,12 +140,12 @@ class PendingRequestsSensor(SensorEntity):
     async def async_added_to_hass(self) -> None:
         """Register update listener."""
         self.async_on_remove(
-            self.hass.bus.async_listen(
-                f"{DOMAIN}_data_updated", self._handle_update
+            async_dispatcher_connect(
+                self.hass, f"{DOMAIN}_update", self._handle_update
             )
         )
 
     @callback
-    def _handle_update(self, event: Any) -> None:
+    def _handle_update(self) -> None:
         """Handle data update signal."""
         self.async_write_ha_state()

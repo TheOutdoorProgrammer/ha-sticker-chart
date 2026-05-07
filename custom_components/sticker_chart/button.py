@@ -9,6 +9,7 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
@@ -137,6 +138,9 @@ class RewardRedemptionButton(ButtonEntity):
                 return  # Race condition — silently ignore
             raise ServiceValidationError(str(err)) from err
 
+        # Signal entities to update immediately (synchronous dispatcher)
+        async_dispatcher_send(self.hass, f"{DOMAIN}_update")
+
         reward = self._store.rewards.get(self._reward_id, {})
         self.hass.bus.async_fire(
             f"{DOMAIN}_redemption_requested",
@@ -160,12 +164,12 @@ class RewardRedemptionButton(ButtonEntity):
     async def async_added_to_hass(self) -> None:
         """Register update listener."""
         self.async_on_remove(
-            self.hass.bus.async_listen(
-                f"{DOMAIN}_data_updated", self._handle_update
+            async_dispatcher_connect(
+                self.hass, f"{DOMAIN}_update", self._handle_update
             )
         )
 
     @callback
-    def _handle_update(self, event: Any) -> None:
+    def _handle_update(self) -> None:
         """Handle data update signal."""
         self.async_write_ha_state()
