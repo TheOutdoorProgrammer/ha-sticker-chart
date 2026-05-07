@@ -189,6 +189,9 @@ class StickerRewardCard extends HTMLElement {
 customElements.define("sticker-reward-card", StickerRewardCard);
 
 // ── Sticker Balance Card ────────────────────────────────────────────────────
+// Config: { entity: "sensor.*_balance", pending_entity: "sensor.*_pending" }
+// pending_entity is optional — if provided, pending requests render below the
+// balance count conditionally (only when there are pending requests).
 
 class StickerBalanceCard extends HTMLElement {
   set hass(hass) {
@@ -203,11 +206,11 @@ class StickerBalanceCard extends HTMLElement {
   }
 
   getCardSize() {
-    return 2;
+    return 3;
   }
 
   static getStubConfig() {
-    return { entity: "" };
+    return { entity: "", pending_entity: "" };
   }
 
   _render() {
@@ -221,15 +224,26 @@ class StickerBalanceCard extends HTMLElement {
     const balance = parseInt(state.state) || 0;
     const name = state.attributes.child_name || "Kid";
 
-    // Generate star field — more stars for higher balances
+    // Pending requests (optional)
+    let pending = [];
+    if (this._config.pending_entity) {
+      const pendingState = this._hass.states[this._config.pending_entity];
+      if (pendingState) {
+        pending = pendingState.attributes.pending_requests || [];
+      }
+    }
+
+    // Generate star field — more stars for higher balances, deterministic
+    // positions based on index so they don't jump on re-render
     const starCount = Math.min(balance, 30);
     let starsHtml = "";
     for (let i = 0; i < starCount; i++) {
-      const left = Math.random() * 90 + 5;
-      const top = Math.random() * 70 + 15;
-      const size = Math.random() * 10 + 8;
-      const delay = Math.random() * 3;
-      const dur = 2 + Math.random() * 2;
+      const seed = i * 7919; // prime for spread
+      const left = ((seed * 13) % 85) + 5;
+      const top = ((seed * 17) % 60) + 18;
+      const size = (seed % 10) + 8;
+      const delay = (seed % 30) / 10;
+      const dur = 2 + (seed % 20) / 10;
       starsHtml += `<div style="
         position: absolute; left: ${left}%; top: ${top}%;
         font-size: ${size}px; opacity: 0.4;
@@ -238,7 +252,7 @@ class StickerBalanceCard extends HTMLElement {
       ">⭐</div>`;
     }
 
-    // Color shifts based on balance thresholds
+    // Color tiers
     let bgGradient, glowColor;
     if (balance >= 20) {
       bgGradient = "linear-gradient(135deg, #f9a825 0%, #ff8f00 50%, #e65100 100%)";
@@ -252,6 +266,49 @@ class StickerBalanceCard extends HTMLElement {
     } else {
       bgGradient = "linear-gradient(135deg, #78909c 0%, #546e7a 50%, #455a64 100%)";
       glowColor = "none";
+    }
+
+    // Build pending section conditionally
+    let pendingHtml = "";
+    if (pending.length > 0) {
+      let requestsHtml = "";
+      for (const req of pending) {
+        const rName = req.reward_name || "Unknown";
+        const rCost = req.reward_cost || 0;
+        requestsHtml += `
+          <div style="
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 14px; background: rgba(0,0,0,0.2);
+            border-radius: 10px; margin-bottom: 6px;
+          ">
+            <div style="font-size: 20px; animation: pendingSpin 3s linear infinite;">⏳</div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 14px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                ${rName}
+              </div>
+              <div style="font-size: 11px; color: rgba(255,255,255,0.5);">
+                ${rCost} ⭐ if approved
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      pendingHtml = `
+        <div style="
+          margin-top: 16px; padding-top: 16px;
+          border-top: 1px solid rgba(255,255,255,0.15);
+        ">
+          <div style="
+            font-size: 12px; color: rgba(255,255,255,0.6);
+            font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.5px; margin-bottom: 10px;
+            text-align: center;
+          ">
+            ⏳ Waiting for Mom & Dad
+          </div>
+          ${requestsHtml}
+        </div>
+      `;
     }
 
     this.innerHTML = `
@@ -281,6 +338,8 @@ class StickerBalanceCard extends HTMLElement {
           <div style="font-size: 18px; color: rgba(255,255,255,0.8);">
             ⭐ sticker${balance !== 1 ? "s" : ""}
           </div>
+
+          ${pendingHtml}
         </div>
       </ha-card>
 
@@ -293,143 +352,18 @@ class StickerBalanceCard extends HTMLElement {
           0%, 100% { transform: scale(1); }
           50% { transform: scale(1.03); }
         }
-      </style>
-    `;
-  }
-}
-
-customElements.define("sticker-balance-card", StickerBalanceCard);
-
-// ── Sticker Pending Card ────────────────────────────────────────────────────
-
-class StickerPendingCard extends HTMLElement {
-  set hass(hass) {
-    this._hass = hass;
-    if (!this._config) return;
-    this._render();
-  }
-
-  setConfig(config) {
-    if (!config.entity) throw new Error("You need to define an entity");
-    this._config = config;
-  }
-
-  getCardSize() {
-    return 2;
-  }
-
-  static getStubConfig() {
-    return { entity: "" };
-  }
-
-  _render() {
-    const entityId = this._config.entity;
-    const state = this._hass.states[entityId];
-    if (!state) {
-      this.innerHTML = `<ha-card><div style="padding:16px">Entity not found: ${entityId}</div></ha-card>`;
-      return;
-    }
-
-    const pending = state.attributes.pending_requests || [];
-    const count = pending.length;
-
-    if (count === 0) {
-      this.innerHTML = `
-        <ha-card style="
-          background: linear-gradient(135deg, #37474f 0%, #263238 100%);
-          border-radius: 20px; overflow: hidden;
-        ">
-          <div style="padding: 20px; text-align: center;">
-            <div style="font-size: 36px; margin-bottom: 8px; opacity: 0.5;">😴</div>
-            <div style="font-size: 14px; color: rgba(255,255,255,0.4); font-weight: 600;">
-              No pending requests
-            </div>
-          </div>
-        </ha-card>
-      `;
-      return;
-    }
-
-    let requestsHtml = "";
-    for (const req of pending) {
-      const name = req.reward_name || "Unknown";
-      const cost = req.reward_cost || 0;
-      requestsHtml += `
-        <div style="
-          display: flex; align-items: center; gap: 12px;
-          padding: 12px 16px; background: rgba(255,255,255,0.1);
-          border-radius: 12px; margin-bottom: 8px;
-        ">
-          <div style="font-size: 24px; animation: pendingSpin 3s linear infinite;">⏳</div>
-          <div style="flex: 1; min-width: 0;">
-            <div style="font-size: 15px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-              ${name}
-            </div>
-            <div style="font-size: 12px; color: rgba(255,255,255,0.6);">
-              ${cost} ⭐ will be deducted if approved
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    this.innerHTML = `
-      <ha-card style="
-        background: linear-gradient(135deg, #e65100 0%, #bf360c 100%);
-        border-radius: 20px; overflow: hidden; position: relative;
-      ">
-        <div class="pending-pulse-bg"></div>
-
-        <div style="padding: 20px; position: relative; z-index: 1;">
-          <div style="
-            display: flex; align-items: center; gap: 10px;
-            margin-bottom: 14px;
-          ">
-            <div style="
-              width: 36px; height: 36px; border-radius: 50%;
-              background: rgba(255,255,255,0.2);
-              display: flex; align-items: center; justify-content: center;
-              font-size: 18px; font-weight: 800; color: #fff;
-            ">${count}</div>
-            <div style="font-size: 14px; color: rgba(255,255,255,0.8); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
-              Pending Request${count !== 1 ? "s" : ""}
-            </div>
-          </div>
-
-          ${requestsHtml}
-
-          <div style="
-            text-align: center; margin-top: 4px;
-            font-size: 13px; color: rgba(255,255,255,0.5); font-style: italic;
-          ">
-            Waiting for Mom or Dad to review...
-          </div>
-        </div>
-      </ha-card>
-
-      <style>
         @keyframes pendingSpin {
           0% { transform: rotate(0deg); }
           25% { transform: rotate(15deg); }
           75% { transform: rotate(-15deg); }
           100% { transform: rotate(0deg); }
         }
-        .pending-pulse-bg {
-          position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(255,255,255,1);
-          animation: pendingPulse 2.5s ease-in-out infinite;
-          pointer-events: none; z-index: 0;
-        }
-        @keyframes pendingPulse {
-          0%, 100% { opacity: 0; }
-          50% { opacity: 0.08; }
-        }
       </style>
     `;
   }
 }
 
-customElements.define("sticker-pending-card", StickerPendingCard);
+customElements.define("sticker-balance-card", StickerBalanceCard);
 
 // ── Card Registration ───────────────────────────────────────────────────────
 
