@@ -119,11 +119,22 @@ class RewardRedemptionButton(ButtonEntity):
 
     async def async_press(self) -> None:
         """Handle the button press — request redemption."""
+        # Check for already-pending before hitting the store
+        for req in self._store.pending_requests.values():
+            if (
+                req["child_id"] == self._child_id
+                and req["reward_id"] == self._reward_id
+            ):
+                _LOGGER.debug("Ignoring duplicate tap for %s - already pending", self._reward_id)
+                return  # Silently ignore — card will show pending state
+
         try:
             request_id = await self._store.async_request_redemption(
                 self._child_id, self._reward_id
             )
         except ValueError as err:
+            if "pending request" in str(err).lower():
+                return  # Race condition — silently ignore
             raise ServiceValidationError(str(err)) from err
 
         reward = self._store.rewards.get(self._reward_id, {})
