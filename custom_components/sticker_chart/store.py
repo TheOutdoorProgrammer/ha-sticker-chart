@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.storage import Store
 
-from .const import STORAGE_KEY, STORAGE_VERSION
+from .const import DOMAIN, STORAGE_KEY, STORAGE_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,8 +31,19 @@ class StickerChartStore:
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the store."""
+        self._hass = hass
         self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._data: dict[str, Any] = {}
+
+    def _purge_entities(self, unique_ids: set[str]) -> None:
+        """Drop registry rows for entities we will never create again.
+
+        Entities are only built in async_setup_entry, so removals leave orphans.
+        """
+        registry = er.async_get(self._hass)
+        for entry in list(registry.entities.values()):
+            if entry.platform == DOMAIN and entry.unique_id in unique_ids:
+                registry.async_remove(entry.entity_id)
 
     async def async_load(self) -> None:
         """Load data from disk."""
@@ -88,6 +100,13 @@ class StickerChartStore:
         for rid in to_remove:
             del self._data["pending_requests"][rid]
         await self._async_save()
+        self._purge_entities(
+            {f"{DOMAIN}_{child_id}_balance", f"{DOMAIN}_{child_id}_pending"}
+            | {
+                f"{DOMAIN}_{child_id}_{reward_id}_redeem"
+                for reward_id in self._data["rewards"]
+            }
+        )
         _LOGGER.info("Removed child %s (%s)", name, child_id)
 
     async def async_grant_stickers(
@@ -190,6 +209,12 @@ class StickerChartStore:
         for rid in to_remove:
             del self._data["pending_requests"][rid]
         await self._async_save()
+        self._purge_entities(
+            {
+                f"{DOMAIN}_{child_id}_{reward_id}_redeem"
+                for child_id in self._data["children"]
+            }
+        )
         _LOGGER.info("Removed reward %s (%s)", name, reward_id)
 
     async def async_update_reward(
